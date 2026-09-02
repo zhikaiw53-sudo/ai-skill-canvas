@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>AI Skill Canvas</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <main class="workspace">
+      <header class="topbar">
+        <div class="crumb"><span class="muted">Workspace</span><span> / </span><strong>无限画布</strong></div>
+        <div class="top-actions">
+          <button id="openSkillsBtn" class="ghost strong-ghost">选择 Skill</button>
+          <button id="undoBtn" class="ghost" disabled>撤销</button>
+          <button id="redoBtn" class="ghost" disabled>重做</button>
+          <button id="projectExportBtn" class="ghost">导出项目</button>
+          <button id="projectImportBtn" class="ghost">导入项目</button>
+          <input id="projectImportInput" type="file" accept="application/json" hidden />
+          <button id="clearCanvasBtn" class="ghost">清空画布</button>
+          <button id="fitCanvasBtn" class="ghost">适应内容</button>
+          <button id="topApiSettingsBtn" class="ghost strong-ghost">API 设置</button>
+        </div>
+      </header>
+
+      <section id="stage" class="stage" tabindex="0">
+        <div id="grid" class="grid"></div>
+        <div id="world" class="world"></div>
+        <div id="selectionBox" class="selection-box hidden"></div>
+        <div id="referencePickBar" class="reference-pick-bar hidden">
+          <strong id="referencePickTitle">正在选择参考图</strong>
+          <span id="referencePickCount">已选 0/1</span>
+          <button id="referencePickDoneBtn" type="button">完成</button>
+          <button id="referencePickCancelBtn" type="button">取消</button>
+        </div>
+        <div id="multiSelectionToolbar" class="multi-selection-toolbar hidden">
+          <strong id="multiSelectionCount">已选 2 个</strong>
+          <button id="multiAlignLeftBtn" type="button">左对齐</button>
+          <button id="multiAlignTopBtn" type="button">顶对齐</button>
+          <button id="multiDistributeBtn" type="button">横向分布</button>
+          <button id="multiDownloadBtn" type="button">下载图片</button>
+          <button id="multiDeleteBtn" type="button">删除</button>
+          <button id="multiClearBtn" type="button">取消选择</button>
+        </div>
+        <div id="nodeContextMenu" class="node-context-menu hidden"></div>
+        <div id="emptyCanvas" class="empty-canvas">
+          <div class="empty-icon">✦</div>
+          <div class="empty-title">把 Skill 拖进画布</div>
+          <div class="empty-sub">拖入 Skill，或直接把本地图片拖进画布 / Ctrl+V 粘贴图片</div>
+        </div>
+
+        <div class="canvas-help">左键选择 · Shift 多选 · 空白拖框选 · 双击/Tab 编辑 · Space+左键或中键平移 · 普通滚轮移动 · Ctrl+滚轮缩放 · Ctrl+Z 撤销</div>
+        <div class="zoom-controls">
+          <button id="zoomOutBtn">−</button>
+          <button id="zoomResetBtn"><span id="zoomLabel">100%</span></button>
+          <button id="zoomInBtn">＋</button>
+        </div>
+      </section>
+
+      <section id="composerWrap" class="composer-wrap">
+        <div class="composer">
+          <div class="composer-compactbar">
+            <div class="compact-left">
+              <button id="activeSkillPill" class="skill-pill">未选择 Skill</button>
+              <div id="editContextBadge" class="edit-context hidden"><span>继续编辑</span><strong id="editContextTitle"></strong><button id="clearEditContextBtn" type="button">×</button></div>
+            </div>
+            <div class="compact-actions">
+              <label id="generationCountWrap" class="compact-control">数量<select id="generationCount"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+              <label id="followupModelWrap" class="compact-control hidden">续编模型<select id="followupModelSelect"></select></label>
+              <button id="previewPromptBtn" class="text-btn">查看提示词</button>
+              <button id="composerToggleBtn" class="secondary compact-toggle" type="button">展开输入 ↑</button>
+              <button id="generateBtn" class="generate-btn"><span>✦</span> 生成</button>
+            </div>
+          </div>
+          <div id="composerBody" class="composer-body">
+            <div class="composer-scroll">
+              <div id="runtimeAspectRatioWrap" class="runtime-generate-settings hidden">
+                <label class="runtime-setting-label" for="runtimeAspectRatio">画面比例</label>
+                <select id="runtimeAspectRatio" class="runtime-setting-select">
+                  <option value="16:9">16：9</option>
+                  <option value="20:9">20：9</option>
+                  <option value="9:16">9：16</option>
+                  <option value="9:20">9：20</option>
+                </select>
+                <span class="runtime-setting-help">每次运行 Skill 时由用户选择，不保存在 Skill 模板里。</span>
+              </div>
+              <div id="editSourcePreview" class="edit-source-preview hidden">
+                <img id="editSourceImage" alt="当前编辑图片" />
+                <div class="edit-source-info">
+                  <div class="edit-source-label">当前编辑图片</div>
+                  <div id="editSourceName" class="edit-source-name"></div>
+                  <div class="edit-source-help">当前选中对象仅作为预览，不会自动进入 AI 编辑。</div>
+                  <button id="editSelectedAssetBtn" class="secondary edit-selected-asset-btn hidden" type="button">编辑这张图</button>
+                </div>
+              </div>
+              <div id="dynamicFieldsHost" class="dynamic-fields-host"></div>
+              <textarea id="userPrompt" rows="2" placeholder="补充要求（可选）。例如：画面更华丽、结构更简洁、加强某部分质感…"></textarea>
+            </div>
+            <div class="composer-bottom">
+              <div class="composer-meta">
+                <span id="resolutionLabel">—</span>
+                <span class="dot-sep">•</span>
+                <span id="formatLabel">—</span>
+                <span class="dot-sep">•</span>
+                <span id="connectionLabel">个人 Key</span>
+              </div>
+              <div class="composer-tip">图片可拖入/粘贴；Shift+单击多选；空白处拖框选择；图片端口进入选图模式后可连续点选并点击“完成”。</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="skillPickerModal" class="modal-backdrop hidden">
+    <div class="modal skill-picker-modal">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title">选择 Skill</div>
+          <div class="modal-sub">点击一个 Skill 即选择成功并返回画布。</div>
+        </div>
+        <button id="closeSkillPickerBtn" class="close-btn" type="button">×</button>
+      </div>
+      <div class="modal-body skill-picker-body">
+        <div class="skill-picker-toolbar">
+          <div class="search-box skill-picker-search"><span>⌕</span><input id="skillSearch" placeholder="搜索 Skill…" /></div>
+          <span class="public-readonly-badge">公开版 · Skill 只读</span>
+          <button id="newSkillBtn" class="secondary public-admin-only" type="button">＋ 新建 Skill</button>
+          <button id="exportSkillsBtn" class="secondary public-admin-only" type="button">导出</button>
+          <button id="importSkillsBtn" class="secondary public-admin-only" type="button">导入</button>
+          <input id="importSkillsInput" type="file" accept="application/json" hidden />
+        </div>
+        <div id="skillList" class="skill-picker-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="skillModal" class="modal-backdrop hidden">
+    <div class="modal wide-modal">
+      <div class="modal-head">
+        <div>
+          <div id="modalTitle" class="modal-title">新建 Skill</div>
+          <div class="modal-sub">支持固定提示词、固定参考图，以及由你自定义的多个图片/文本输入端口。</div>
+        </div>
+        <button id="closeSkillModal" class="close-btn">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="cover-editor">
+          <div id="coverPreview" class="cover-preview"><span>封面示意图</span></div>
+          <div class="cover-controls">
+            <label class="secondary file-btn">上传封面<input id="coverFile" type="file" accept="image/*" hidden /></label>
+            <button id="useLastResultBtn" class="secondary">使用最近生成图</button>
+            <label class="field compact"><span>或图片 URL</span><input id="coverUrl" placeholder="https://…" /></label>
+          </div>
+        </div>
+
+        <div class="form-grid two">
+          <label class="field"><span>Skill 名称</span><input id="skillName" placeholder="例如：规则框生成器" /></label>
+          <label class="field"><span>分类 / 标签</span><input id="skillCategory" placeholder="UI / 规则框 / 模板" /></label>
+        </div>
+        <label class="field"><span>简介</span><input id="skillDescription" placeholder="一句话说明这个 Skill 擅长什么" /></label>
+        <label class="field"><span>最终提示词模板</span><textarea id="skillPromptTemplate" rows="5" placeholder="例如：生成一个画面，模板是（{{fixed:规则框尺寸模板图}}），风格是{{field:风格描述}}，角色参考：（{{field:角色参考图}}），特征描述：{{field:特征描述}}，场景参考：（{{field:场景参考图}}），场景描述：{{field:场景描述}}"></textarea><small>这里写“最终整合后发给 Lovart 的完整文段模板”。支持占位符：固定参考图用 {{fixed:名称}}，用户字段用 {{field:名称}}。图片字段会自动替换成“图一 / 图二 / 图三”这类标记，文本字段会替换为用户填写的内容。</small></label>
+        <div id="templateTokensHelp" class="api-hint"></div>
+        <label class="field"><span>附加固定提示词（可选）</span><textarea id="skillFixedPrompt" rows="6" placeholder="这里填写除模板文段之外，还需要始终附加的额外要求，例如质量、工艺、约束…"></textarea><small>如果上面的“最终提示词模板”已经写完整，这里可以留空；否则这里会作为附加说明拼接到最终 prompt 后面。</small></label>
+        <label class="field"><span>负面约束</span><textarea id="skillNegativePrompt" rows="3" placeholder="例如：杂乱线条、低清晰度、过度装饰…"></textarea></label>
+
+        <section class="editor-section">
+          <div class="editor-section-head">
+            <div>
+              <strong>固定参考图</strong>
+              <small>例如：规则框尺寸模板图、结构模板图、品牌规范图。</small>
+            </div>
+            <button id="addFixedRefBtn" class="secondary mini-inline" type="button">＋ 添加固定参考图</button>
+          </div>
+          <div id="fixedRefsList" class="ref-list"></div>
+        </section>
+
+        <section class="editor-section">
+          <div class="editor-section-head">
+            <div>
+              <strong>用户输入端口</strong>
+              <small>你来定义用户运行此 Skill 时需要上传/填写什么。</small>
+            </div>
+            <div class="inline-actions">
+              <button id="addImageFieldBtn" class="secondary mini-inline" type="button">＋ 图片端口</button>
+              <button id="addTextFieldBtn" class="secondary mini-inline" type="button">＋ 单行文本</button>
+              <button id="addTextareaFieldBtn" class="secondary mini-inline" type="button">＋ 多行文本</button>
+            </div>
+          </div>
+          <div id="inputFieldsList" class="field-def-list"></div>
+        </section>
+
+        <div class="form-grid three">
+          <label class="field"><span>Style 参数</span><input id="skillStyle" placeholder="cinematic-gothic" /></label>
+          <label class="field"><span>出图模型</span><select id="skillModel"><option value="generate_image_nano_banana_pro">banana pro</option><option value="generate_image_nano_banana_2">banana2</option><option value="generate_image_gpt_image_2_high">GPT image2 high</option></select><small>只保留这 3 个模型可选。</small></label>
+          <label class="field"><span>格式</span><select id="skillFormat"><option value="png">PNG</option><option value="jpg">JPG</option><option value="webp">WEBP</option></select></label>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button id="deleteSkillBtn" class="danger hidden">删除 Skill</button>
+        <div class="spacer"></div>
+        <button id="cancelSkillBtn" class="secondary">取消</button>
+        <button id="saveSkillBtn" class="primary">保存 Skill</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="promptModal" class="modal-backdrop hidden">
+    <div class="modal prompt-modal">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title">最终发送给 AI 的提示词</div>
+          <div class="modal-sub">会显示固定提示词、用户表单文本和参考图说明。</div>
+        </div>
+        <button id="closePromptModal" class="close-btn">×</button>
+      </div>
+      <div class="modal-body">
+        <pre id="promptPreview" class="prompt-preview"></pre>
+      </div>
+      <div class="modal-foot">
+        <div class="spacer"></div>
+        <button id="copyPromptBtn" class="secondary">复制</button>
+        <button id="promptGenerateBtn" class="primary">用这个提示词生成</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="apiModal" class="modal-backdrop hidden">
+    <div class="modal api-modal">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title">个人 Lovart API 设置</div>
+          <div class="modal-sub">每个人填写自己的 Access Key + Secret Key；网站按 Lovart 官方 HMAC 签名方式直连 OpenAPI。</div>
+        </div>
+        <button id="closeApiModal" class="close-btn">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="privacy-note">
+          <strong>Lovart AK / SK</strong>
+          <span>按照 Lovart OpenAPI 的官方鉴权方式：Access Key 用来标识调用者，Secret Key 只在当前浏览器本地用于 HMAC-SHA256 签名。Secret Key 本身不会作为请求字段发送给 Lovart。</span>
+        </div>
+        <label class="field"><span>Access Key</span><input id="accessKeyInput" type="text" autocomplete="off" spellcheck="false" placeholder="ak_xxxxxxxxx" /></label>
+        <label class="field"><span>Secret Key</span><div class="password-row"><input id="secretKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk_xxxxxxxxx" /><button id="toggleSecretBtn" class="secondary mini-btn" type="button">显示</button></div><small>只保存在当前浏览器。每次请求会用它计算 HMAC-SHA256 签名。</small></label>
+        <label class="field"><span>Lovart Base URL</span><input id="baseUrlInput" spellcheck="false" placeholder="https://lgw.lovart.ai" /><small>官方 OpenAPI 客户端默认使用 https://lgw.lovart.ai。</small></label>
+        <div class="form-grid two">
+          <label class="field"><span>Project ID（可选）</span><input id="projectIdInput" spellcheck="false" placeholder="留空则第一次生成时自动创建" /><small>创建成功后会自动保存到本机。</small></label>
+          <label class="field"><span>Agent 模式</span><select id="agentModeInput"><option value="fast">fast</option><option value="thinking">thinking</option></select><small>同一 Thread 首次创建后模式会被锁定。</small></label>
+        </div>
+        <label class="switch-row"><input id="mockModeInput" type="checkbox" /><span><strong>演示模式</strong><small>不调用 Lovart，只生成本地 Mock 图，用于测试 Skill、模板和图一/图二/图三映射。</small></span></label>
+        <div class="cors-note">本版仍是纯前端。如果 Lovart 的 OpenAPI 没有允许浏览器 CORS，自定义鉴权请求会被浏览器拦截；这种情况与 AK/SK 是否正确无关。</div>
+      </div>
+      <div class="modal-foot">
+        <button id="clearApiKeyBtn" class="danger">清除本机 AK / SK</button>
+        <div class="spacer"></div>
+        <button id="testApiBtn" class="secondary">测试连接</button>
+        <button id="cancelApiBtn" class="secondary">取消</button>
+        <button id="saveApiBtn" class="primary">保存到本机</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
