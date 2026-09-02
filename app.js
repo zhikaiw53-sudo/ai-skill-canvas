@@ -10,6 +10,20 @@ const MODEL_OPTIONS = [
 const DEFAULT_MODEL = 'generate_image_nano_banana_2';
 const PUBLIC_READONLY_SKILLS = true;
 const PUBLIC_BUILD_LABEL = 'PUBLIC · SKILLS READ ONLY';
+const PUBLISHED_SKILLS_URL = './skills.json';
+
+async function loadPublishedSkills() {
+  try {
+    const res = await fetch(`${PUBLISHED_SKILLS_URL}?v=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const raw = await res.json();
+    if (!Array.isArray(raw) || !raw.length) throw new Error('skills.json 为空或格式不正确');
+    return raw.map((item) => cleanSkill(item));
+  } catch (err) {
+    console.warn('加载已发布 Skill 失败，使用内置备用 Skill：', err);
+    return DEFAULT_SKILLS.map((item) => cleanSkill(item));
+  }
+}
 
 function normalizeModel(value = '') {
   const v = String(value || '').trim();
@@ -2385,7 +2399,7 @@ async function init() {
     state.composerCollapsed = false;
     state.db = await openDB();
     if (PUBLIC_READONLY_SKILLS) {
-      state.skills = DEFAULT_SKILLS.map((item) => cleanSkill(item));
+      state.skills = await loadPublishedSkills();
     } else {
       state.skills = await seedIfNeeded();
       state.skills.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
