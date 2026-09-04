@@ -8,22 +8,6 @@ const MODEL_OPTIONS = [
   { value: 'generate_image_gpt_image_2_high', label: 'GPT image2 high' }
 ];
 const DEFAULT_MODEL = 'generate_image_nano_banana_2';
-const PUBLIC_READONLY_SKILLS = true;
-const PUBLIC_BUILD_LABEL = 'PUBLIC · SKILLS READ ONLY';
-const PUBLISHED_SKILLS_URL = './skills.json';
-
-async function loadPublishedSkills() {
-  try {
-    const res = await fetch(`${PUBLISHED_SKILLS_URL}?v=${Date.now()}`, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const raw = await res.json();
-    if (!Array.isArray(raw) || !raw.length) throw new Error('skills.json 为空或格式不正确');
-    return raw.map((item) => cleanSkill(item));
-  } catch (err) {
-    console.warn('加载已发布 Skill 失败，使用内置备用 Skill：', err);
-    return DEFAULT_SKILLS.map((item) => cleanSkill(item));
-  }
-}
 
 function normalizeModel(value = '') {
   const v = String(value || '').trim();
@@ -32,7 +16,7 @@ function normalizeModel(value = '') {
 function modelLabel(value = '') {
   return MODEL_OPTIONS.find((x) => x.value === value)?.label || 'banana2';
 }
-const DEFAULT_SKILLS = [
+const BUILTIN_FALLBACK_SKILLS = [
   {
     id: 'skill-rule-frame',
     name: '规则框生成器',
@@ -98,6 +82,11 @@ const DEFAULT_SKILLS = [
     ]
   }
 ];
+
+const PUBLIC_READ_ONLY_SKILLS = true;
+const DEFAULT_SKILLS = Array.isArray(window.PUBLISHED_SKILLS) && window.PUBLISHED_SKILLS.length
+  ? window.PUBLISHED_SKILLS
+  : BUILTIN_FALLBACK_SKILLS;
 
 const skillList = $('#skillList');
 const stage = $('#stage');
@@ -312,11 +301,6 @@ function loadSettings() {
 function saveSettings() {
   localStorage.setItem('skillCanvas.apiSettings', JSON.stringify(state.settings));
 }
-function blockSkillMutation() {
-  toast('公开版 Skill 为只读，无法新建、编辑、删除或导入覆盖。', true);
-  return false;
-}
-
 function toast(message, error = false) {
   toastEl.textContent = message;
   toastEl.classList.toggle('error', error);
@@ -416,9 +400,9 @@ function storeRequest(storeName, mode, operation) {
   });
 }
 async function dbGetAllSkills() { return storeRequest('skills', 'readonly', (s) => s.getAll()); }
-async function dbPutSkill(skill) { if (PUBLIC_READONLY_SKILLS) return blockSkillMutation(); await storeRequest('skills', 'readwrite', (s) => s.put(skill)); }
-async function dbDeleteSkill(id) { if (PUBLIC_READONLY_SKILLS) return blockSkillMutation(); await storeRequest('skills', 'readwrite', (s) => s.delete(id)); }
-async function dbClearSkills() { if (PUBLIC_READONLY_SKILLS) return blockSkillMutation(); await storeRequest('skills', 'readwrite', (s) => s.clear()); }
+async function dbPutSkill(skill) { await storeRequest('skills', 'readwrite', (s) => s.put(skill)); }
+async function dbDeleteSkill(id) { await storeRequest('skills', 'readwrite', (s) => s.delete(id)); }
+async function dbClearSkills() { await storeRequest('skills', 'readwrite', (s) => s.clear()); }
 async function dbGetMeta(key, fallback = null) {
   const row = await storeRequest('meta', 'readonly', (s) => s.get(key));
   return row ? row.value : fallback;
@@ -437,8 +421,8 @@ function saveCanvasSoon() {
 }
 
 async function seedIfNeeded() {
-  if (PUBLIC_READONLY_SKILLS) {
-    return DEFAULT_SKILLS.map((item) => cleanSkill(item));
+  if (PUBLIC_READ_ONLY_SKILLS) {
+    return DEFAULT_SKILLS.map((item) => cleanSkill(item, item));
   }
   const skills = await dbGetAllSkills();
   if (skills.length) return skills;
@@ -489,11 +473,18 @@ function renderSkills() {
     selected.className = 'skill-picker-selected';
     selected.textContent = skill.id === state.selectedSkillId ? '✓ 已选择' : '选择';
 
-    const readonly = document.createElement('div');
-    readonly.className = 'skill-picker-readonly';
-    readonly.textContent = '只读';
+    const edit = document.createElement('button');
+    edit.className = 'tiny-btn skill-picker-edit';
+    edit.textContent = '编辑';
+    edit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeSkillPicker();
+      openSkillModal(skill.id);
+    });
 
-    row.append(cover, info, readonly, selected);
+    row.append(cover, info);
+    if (!PUBLIC_READ_ONLY_SKILLS) row.append(edit);
+    row.append(selected);
     row.addEventListener('click', () => {
       setActiveSkill(skill.id);
       closeSkillPicker();
@@ -996,8 +987,12 @@ function renderSkillNode(node) {
   chips.innerHTML = `<span class="node-chip">固定图 ${skill.fixedReferences.length}</span><span class="node-chip">端口 ${skill.inputFields.length}</span>`;
   const actions = document.createElement('div'); actions.className = 'node-actions';
   const use = document.createElement('button'); use.textContent = '设为当前 Skill';
+  const edit = document.createElement('button'); edit.textContent = '编辑 Skill';
   use.addEventListener('click', (e) => { e.stopPropagation(); setActiveSkill(skill.id); toast(`已选择：${skill.name}`); });
-  actions.append(use); body.append(title, sub, chips, actions); el.append(cover, body); world.append(el);
+  edit.addEventListener('click', (e) => { e.stopPropagation(); openSkillModal(skill.id); });
+  actions.append(use);
+  if (!PUBLIC_READ_ONLY_SKILLS) actions.append(edit);
+  body.append(title, sub, chips, actions); el.append(cover, body); world.append(el);
 }
 function renderImageNode(node) {
   const el = makeNodeShell(node, 'image-node image-node-native');
@@ -1977,7 +1972,10 @@ function updateCoverPreview() {
   const p = $('#coverPreview'); bg(p, state.coverDraft); p.textContent = state.coverDraft ? '' : '封面示意图'; $('#coverUrl').value = state.coverDraft.startsWith('data:') ? '' : state.coverDraft;
 }
 function openSkillModal(id = null) {
-  if (PUBLIC_READONLY_SKILLS) return blockSkillMutation();
+  if (PUBLIC_READ_ONLY_SKILLS) {
+    toast('站点 Skill 由发布者维护，当前为只读');
+    return;
+  }
   state.editorId = id;
   const skill = id ? getSkill(id) : null;
   state.coverDraft = skill?.cover || '';
@@ -2002,7 +2000,10 @@ function openSkillModal(id = null) {
   setTimeout(() => $('#skillName').focus(), 50);
 }
 function closeSkillModal() { state.editorId = null; $('#skillModal').classList.add('hidden'); }
-$('#newSkillBtn').onclick = () => { if (PUBLIC_READONLY_SKILLS) return blockSkillMutation(); closeSkillPicker(); openSkillModal(); };
+$('#newSkillBtn').onclick = () => {
+  if (PUBLIC_READ_ONLY_SKILLS) return toast('站点 Skill 由发布者维护，当前为只读');
+  closeSkillPicker(); openSkillModal();
+};
 $('#closeSkillModal').onclick = closeSkillModal;
 $('#cancelSkillBtn').onclick = closeSkillModal;
 $('#skillModal').addEventListener('click', (e) => { if (e.target.id === 'skillModal') closeSkillModal(); });
@@ -2099,7 +2100,7 @@ $('#addTextFieldBtn').onclick = () => { state.editorFieldDefsDraft.push(normaliz
 $('#addTextareaFieldBtn').onclick = () => { state.editorFieldDefsDraft.push(normalizeField({ type: 'textarea', label: '多行文本端口', role: 'instruction' })); renderFieldDefsEditor(); renderTemplateTokenHelp(); };
 
 $('#saveSkillBtn').onclick = async () => {
-  if (PUBLIC_READONLY_SKILLS) return blockSkillMutation();
+  if (PUBLIC_READ_ONLY_SKILLS) return toast('站点 Skill 由发布者维护，当前为只读');
   const name = $('#skillName').value.trim(); if (!name) return toast('请填写 Skill 名称', true);
   const payload = {
     name,
@@ -2134,7 +2135,7 @@ $('#saveSkillBtn').onclick = async () => {
   } catch (e) { toast(e.message, true); }
 };
 $('#deleteSkillBtn').onclick = async () => {
-  if (PUBLIC_READONLY_SKILLS) return blockSkillMutation();
+  if (PUBLIC_READ_ONLY_SKILLS) return toast('站点 Skill 由发布者维护，当前为只读');
   const skill = getSkill(state.editorId);
   if (!skill || !confirm(`删除 Skill「${skill.name}」？画布上引用它的节点也会移除。`)) return;
   try {
@@ -2239,9 +2240,12 @@ function downloadJson(filename, data) {
 }
 $('#skillSearch').addEventListener('input', renderSkills);
 $('#exportSkillsBtn').onclick = () => { downloadJson(`skill-canvas-skills-${new Date().toISOString().slice(0, 10)}.json`, state.skills); toast('Skills 已导出（不包含 Lovart AK / SK）'); };
-$('#importSkillsBtn').onclick = () => { if (PUBLIC_READONLY_SKILLS) return blockSkillMutation(); $('#importSkillsInput').click(); };
+$('#importSkillsBtn').onclick = () => {
+  if (PUBLIC_READ_ONLY_SKILLS) return toast('站点 Skill 由发布者维护，当前为只读');
+  $('#importSkillsInput').click();
+};
 $('#importSkillsInput').addEventListener('change', async (e) => {
-  if (PUBLIC_READONLY_SKILLS) { e.target.value = ''; return blockSkillMutation(); }
+  if (PUBLIC_READ_ONLY_SKILLS) { e.target.value = ''; return toast('站点 Skill 由发布者维护，当前为只读'); }
   const f = e.target.files?.[0]; if (!f) return;
   try {
     const parsed = JSON.parse(await f.text());
@@ -2263,7 +2267,7 @@ $('#importSkillsInput').addEventListener('change', async (e) => {
 });
 $('#projectExportBtn').onclick = () => {
   const project = {
-    type: 'ai-skill-canvas-project', version: 6, exportedAt: nowISO(), skills: PUBLIC_READONLY_SKILLS ? [] : state.skills,
+    type: 'ai-skill-canvas-project', version: 5, exportedAt: nowISO(), skills: state.skills,
     canvas: { nodes: state.nodes, camera: state.camera, runtimeInputs: state.runtimeInputs },
     selectedSkillId: state.selectedSkillId,
     api: { baseUrl: state.settings.baseUrl, agentMode: state.settings.agentMode, mock: state.settings.mock },
@@ -2272,8 +2276,12 @@ $('#projectExportBtn').onclick = () => {
   downloadJson(`ai-skill-canvas-project-${new Date().toISOString().slice(0, 10)}.json`, project);
   toast('项目已导出，Lovart AK / SK 与 Project ID 未包含在文件中');
 };
-$('#projectImportBtn').onclick = () => $('#projectImportInput').click();
+$('#projectImportBtn').onclick = () => {
+  if (PUBLIC_READ_ONLY_SKILLS) return toast('公开版不允许导入项目');
+  $('#projectImportInput').click();
+};
 $('#projectImportInput').addEventListener('change', async (e) => {
+  if (PUBLIC_READ_ONLY_SKILLS) { e.target.value = ''; return toast('公开版不允许导入项目'); }
   const f = e.target.files?.[0]; if (!f) return;
   try {
     const project = JSON.parse(await f.text());
@@ -2398,12 +2406,8 @@ async function init() {
   try {
     state.composerCollapsed = false;
     state.db = await openDB();
-    if (PUBLIC_READONLY_SKILLS) {
-      state.skills = await loadPublishedSkills();
-    } else {
-      state.skills = await seedIfNeeded();
-      state.skills.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-    }
+    state.skills = await seedIfNeeded();
+    state.skills.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
     const canvas = await dbGetMeta('canvas', null);
     if (canvas) {
       state.nodes = Array.isArray(canvas.nodes) ? canvas.nodes : [];
@@ -2413,7 +2417,10 @@ async function init() {
     const newestResult = [...state.nodes].reverse().find((n) => n.type === 'result' && n.assetUrl);
     if (newestResult) state.lastResultUrl = newestResult.assetUrl;
     const savedSkillId = localStorage.getItem('skillCanvas.selectedSkillId');
-    state.selectedSkillId = getSkill(savedSkillId) ? savedSkillId : state.skills[0]?.id || null;
+    const publishedSkillId = window.PUBLISHED_SELECTED_SKILL_ID || '';
+    state.selectedSkillId = getSkill(savedSkillId)
+      ? savedSkillId
+      : (getSkill(publishedSkillId) ? publishedSkillId : state.skills[0]?.id || null);
     state.selectedNodeIds = state.selectedNodeId ? [state.selectedNodeId] : [];
     renderSkills(); renderComposer(); renderCanvas(); renderApiStatus(); renderReferencePickBar(); updateUndoRedoButtons();
   } catch (e) {

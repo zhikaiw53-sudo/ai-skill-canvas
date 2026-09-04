@@ -1,0 +1,18 @@
+AI Skill Canvas 公开只读版
+
+本更新包已写入 2026-09-04 导出的 9 个 Skill。
+公开访问者可以选择并运行 Skill，但不能新建、编辑、删除或导入 Skill。
+
+更新 GitHub Pages：
+1. 解压本压缩包。
+2. 打开原网站的 GitHub 仓库，进入 Code 文件列表。
+3. 点击 Add file，再点击 Upload files。
+4. 把解压后的所有文件和文件夹一起拖入上传区。
+5. 确认覆盖同名的 index.html、app.js 和 styles.css，并保留 published-assets 文件夹。
+6. 点击 Commit changes。
+7. 等待约 1～3 分钟，打开网站并按 Ctrl+F5 强制刷新。
+
+注意：
+- published-skills.js 和 published-assets 文件夹必须一起上传。
+- 不要把 Lovart Access Key 或 Secret Key 写进 GitHub 文件。
+- ai-skill-canvas-project-*.json 是管理版导出的项目备份，不能直接代替 published-skills.js。
